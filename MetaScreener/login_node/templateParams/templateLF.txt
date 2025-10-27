@@ -8,7 +8,7 @@
 #LanzCoordZ:
 #LanzGrid:Y
 #LanzCores:1
-#LanzTimeExecution:3600
+#LanzTimeExecution:36000
 #LanzMem:2G
 #lanzSizeGridX:30
 #lanzSizeGridY:30
