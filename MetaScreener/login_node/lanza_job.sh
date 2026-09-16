@@ -79,18 +79,24 @@ send_jobs()
 
 	source ${pathSL}resume.sh
 
-	while [  $SALIR == 0 ]
-	do
-		funcionJob
-		contIni=$contFin
-		contFin=`expr $contFin + $nRuns`
-		if [ `expr $contFin + $resto`  -gt `expr $numFicheros` ]; then
-	  		 SALIR=1
+	# Use a single SLURM job array (one task per chunk) when submitting to Slurm.
+	# For sequential runs or other queue managers, keep the classic one-job-per-chunk loop.
+	if [ "$secuencial" == "N/A" ] && [ "$queue_manager" == "SBATCH" ]; then
+		send_job_array
+	else
+		while [  $SALIR == 0 ]
+		do
+			funcionJob
+			contIni=$contFin
+			contFin=`expr $contFin + $nRuns`
+			if [ `expr $contFin + $resto`  -gt `expr $numFicheros` ]; then
+		  		 SALIR=1
+			fi
+		done
+		if [ $resto -ne 0 ];then
+			contFin=`expr $contIni + $resto`
+			funcionJob
 		fi
-	done
-	if [ $resto -ne 0 ];then
-		contFin=`expr $contIni + $resto`
-		funcionJob
 	fi
 
 	if [ "$histograms" != "N/A" ]; then # Excepction for join_ls_sessions
@@ -104,6 +110,60 @@ send_jobs()
 			
 		fi
 	fi
+}
+
+#
+#	Send all chunks of the experiment as a single SLURM job array.
+#	Each array task processes one chunk ([contIni, contFin)), computed at runtime
+#	from SLURM_ARRAY_TASK_ID. If the number of tasks exceeds the cluster's
+#	MaxArraySize, the run is split into several array submissions, each with an
+#	offset; every submission id is collected in jobsIDs so the histogram job can
+#	depend (afterok) on all of them.
+#
+function send_job_array()
+{
+	# Chunk size and last-chunk remainder are derived from nRuns so the task
+	# mapping is identical to the classic per-chunk loop for both -j and -ij modes.
+	array_resto=`expr $numFicheros \% $nRuns`
+	array_count=`expr $numFicheros \/ $nRuns`
+	if [ $array_resto -gt 0 ];then
+		array_count=`expr $array_count + 1`
+	fi
+	if [ $array_count -le 0 ];then
+		array_count=1
+	fi
+
+	# Cap each array submission to the cluster MaxArraySize (default 1000 indices).
+	MAX_ARRAY_SIZE=`empty_variable $max_array_size 1000`
+	if ! [[ "$MAX_ARRAY_SIZE" =~ ^[0-9]+$ ]];then
+		MAX_ARRAY_SIZE=1000
+	fi
+
+	source ${CWD}MetaScreener/login_node/read_all_conf.sh
+
+	array_offset=0
+	while [ $array_offset -lt $array_count ]
+	do
+		remaining=`expr $array_count - $array_offset`
+		if [ $remaining -gt $MAX_ARRAY_SIZE ];then
+			array_chunk_size=$MAX_ARRAY_SIZE
+		else
+			array_chunk_size=$remaining
+		fi
+		array_index_max=`expr $array_chunk_size - 1`
+
+		name_template_job="${folder_templates_jobs}job-${name_target}-${name_query}-array-${array_offset}.sh"
+
+		source ${path_cluster_nodes}/templates_queue/gest_SBATCH_array.sh
+
+		debugB "lanza_job.sh: ${commnad_execute} ${name_template_job} (array 0-${array_index_max} offset ${array_offset})"
+		job_id=`${commnad_execute} ${name_template_job}`
+		job_id=`eval ${command_get_id_job}`
+		echo "+ ARRAY JOB: "${job_id}" (tasks ${array_offset}-`expr $array_offset + $array_index_max`)"
+		jobsIDs=${jobsIDs}:${job_id}
+
+		array_offset=`expr $array_offset + $array_chunk_size`
+	done
 }
 
 #
@@ -175,12 +235,20 @@ function get_histogram()
     echo "singularity exec --bind $bind ${PWD}/singularity/metascreener.simg python ${path_extra_metascreener}results/join/join_ls_sessions.py ${folder_experiment} -q $query -s " >>${folder_templates_jobs}template_get_hystogram.sh
   elif [ $software == "EO" ] || [ $software == "RC" ] ;then
     echo "singularity exec --bind $bind ${PWD}/singularity/metascreener.simg python3 ${path_extra_metascreener}used_by_metascreener/get_openeye_csv.py ${folder_experiment} $software " >>${folder_templates_jobs}template_get_hystogram.sh
+  elif [ $software == "DC" ];then
+    # Collect per-molecule Dragon ranking CSVs into the experiment root (summary product).
+    echo "find ${folder_experiment}molecules -name '*.csv' -exec cp -t ${folder_experiment} {} + 2>/dev/null || true" >>${folder_templates_jobs}template_get_hystogram.sh
+  elif [ $software == "OM" ];then
+    # OM is a preparation step: no special summary product beyond time.txt / archive.
+    :
   else
     rm ${folder_templates_jobs}template_get_hystogram.sh
     exit
   fi
 
      echo "bash ${path_extra_metascreener}used_by_metascreener/get_time_resume.sh ${folder_out_jobs} >> ${folder_experiment}time.txt">>${folder_templates_jobs}template_get_hystogram.sh
+	# Archive the job-array script(s) once the array has finished (no-op for the classic per-chunk flow).
+	echo "mv ${folder_templates_jobs}job-*-array-*.sh ${folder_jobs_done} 2>/dev/null">>${folder_templates_jobs}template_get_hystogram.sh
 	echo "mv ${folder_templates_jobs}template_get_hystogram.sh ${folder_jobs_done}">>${folder_templates_jobs}template_get_hystogram.sh
 	echo "echo \"end job\" 1>&2">>${folder_templates_jobs}template_get_hystogram.sh
 	echo "date +\"%s   %c\" 1>&2">>${folder_templates_jobs}template_get_hystogram.sh
