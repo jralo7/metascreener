@@ -166,8 +166,24 @@ function get_histogram()
       echo "pml=\`basename ${folder_experiment}\`_*.pml">>${folder_templates_jobs}template_get_hystogram.sh
     fi
     echo "find ${folder_experiment} -name \${pml} -execdir singularity exec --bind $bind \$PWD/singularity/metascreener.simg pymol -c -q -k -Q "{}" \; > /dev/null 2>&1">>${folder_templates_jobs}template_get_hystogram.sh
-    echo "find ${folder_experiment} -name \`basename ${folder_experiment}\`.pse -exec cp "{}" ${folder_experiment} \;">>${folder_templates_jobs}template_get_hystogram.sh
-    echo "if [ -f \`basename ${folder_experiment}\`.pse ]; then tar -rf \`basename ${folder_experiment}\`.tar.gz \`basename ${folder_experiment}\`.pse; fi">>${folder_templates_jobs}template_get_hystogram.sh
+    echo "find ${folder_experiment} -name \`basename ${folder_experiment}\`.pse ! -path ${folder_experiment}\`basename ${folder_experiment}\`.pse -exec cp "{}" ${folder_experiment} \;">>${folder_templates_jobs}template_get_hystogram.sh
+    pse_base=$(basename "${folder_experiment}")
+    echo "pse_file=${folder_experiment%/}/${pse_base}.pse" >>${folder_templates_jobs}template_get_hystogram.sh
+    echo "tgz=${pse_base}.tar.gz" >>${folder_templates_jobs}template_get_hystogram.sh
+    cat >>${folder_templates_jobs}template_get_hystogram.sh << 'EOF'
+if [ -f "$pse_file" ] && [ -f "$tgz" ]; then
+  tmp_tar=$(mktemp)
+  tmp_tgz=$(mktemp)
+  pse_rel=$(realpath --relative-to=. "$pse_file" 2>/dev/null || basename "$pse_file")
+  if gzip -dc "$tgz" > "$tmp_tar" && tar -rf "$tmp_tar" "$pse_rel" && gzip -c "$tmp_tar" > "$tmp_tgz"; then
+    mv "$tmp_tgz" "$tgz"
+  else
+    echo "ERROR: could not add $pse_file to $tgz" 1>&2
+    rm -f "$tmp_tgz"
+  fi
+  rm -f "$tmp_tar"
+fi
+EOF
     echo "python ${path_extra_metascreener}used_by_metascreener/get_csv.py ${folder_experiment}" >>${folder_templates_jobs}template_get_hystogram.sh
 
   # For LS only needs a summary in .csv

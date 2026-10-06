@@ -27,15 +27,17 @@ class PlipGraph(object):
                 self.cfg.OUTPUT_DIRS['interacciones'],
                 pose.file_name
             )
-    
-            _, ligand_ext = os.path.splitext(pose.file_ori_target)
-    
+            ligand_file = os.path.join(
+                self.cfg.OUTPUT_DIRS['bestScore'],
+                pose.file_name + pose.ligand_ext
+            )
+
             if bool(self.cfg.file_target_pdb and not self.cfg.file_target_pdb.isspace()):
                 cmd = '{} {} {} {} {} {}'.format(
                     self.cfg.python_exe,
                     self.cfg.ligand_plip,
                     pose.file_ori_target,
-                    prefix_out + ligand_ext,
+                    ligand_file,
                     prefix_out,
                     self.cfg.file_target_pdb
                 )
@@ -44,7 +46,7 @@ class PlipGraph(object):
                     self.cfg.python_exe,
                     self.cfg.ligand_plip,
                     pose.file_ori_target,
-                    prefix_out + ligand_ext,
+                    ligand_file,
                     prefix_out,
                 )
     

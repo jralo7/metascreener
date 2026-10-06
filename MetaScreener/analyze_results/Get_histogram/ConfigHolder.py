@@ -35,6 +35,13 @@ class ConfigHolder(object):
                 return str(output, 'utf-8')
             else:
                 return str(output)
+        except subprocess.CalledProcessError as e:
+            self.print_error(tag, e)
+            output = getattr(e, 'output', None)
+            if output:
+                if sys.version_info[0] >= 3 and not isinstance(output, str):
+                    output = output.decode('utf-8', 'replace')
+                print(output)
         except Exception as e:
             self.print_error(tag, e)
 
