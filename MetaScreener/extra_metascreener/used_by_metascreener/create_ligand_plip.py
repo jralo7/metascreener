@@ -127,9 +127,11 @@ if __name__ == "__main__":
     if lig == "None":
         lig = None
 
-    if lig != None and not os.path.isfile(lig) or not os.path.isfile(rec):
+    if (lig is not None and not os.path.isfile(lig)) or not os.path.isfile(rec):
         print("ERROR: ligand or receptor does not exist")
-        exit()
+        print("receptor: {}".format(rec))
+        print("ligand: {}".format(lig))
+        sys.exit(1)
 
     rec_name, rec_ext = os.path.splitext(rec)
 
